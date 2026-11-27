@@ -68,7 +68,7 @@
     return '<span class="x-av ' + (cls || "") + '" style="' + tv("cc", c.color) + '" aria-hidden="true">' + (c.id ? initials(c.name) : "?") + "</span>";
   }
   function cchip(c) { return '<span class="x-cchip x-cct" style="' + tv("cc", c.color) + '">' + logo(c) + "<span>" + esc(c.name) + "</span></span>"; }
-  /* logos are cloned from the static header images so the page stays self-contained */
+  /* os logos vêm da pasta imagens/ (via as <img> do cabeçalho) e são clonados onde forem usados */
   function hydrate(root) {
     (root || document).querySelectorAll("[data-logo]").forEach(function (el) {
       if (el.firstChild) return;
@@ -76,11 +76,6 @@
       var i = src.cloneNode(false); i.removeAttribute("id"); i.alt = ""; el.appendChild(i);
     });
   }
-  /* cada logo existe uma vez só no HTML (versão pequena, no login); o cabeçalho reaproveita a mesma imagem */
-  ["cp", "fl", "pa"].forEach(function (k) {
-    var a = document.querySelector('[data-lg="' + k + '"]'), b = document.getElementById("logo-" + k);
-    if (a && b) b.src = a.getAttribute("src");
-  });
   /* só toca no DOM quando o HTML mudou */
   function setHTML(el, h) { if (el._h === h) return false; el.innerHTML = h; el._h = h; return true; }
   function badge(text, color) { return '<span class="x-badge" style="' + tv("bc", color) + '">' + esc(text) + "</span>"; }
@@ -108,40 +103,17 @@
   }
   $("#toast").addEventListener("click", function () { clearTimeout(toastT); this.classList.remove("is-on"); try { if (this.hidePopover) this.hidePopover(); } catch (e) {} });
   /* ---------- banco online (Supabase via fetch) ---------- */
-  var SB = "https://sfaxcrkbvmafpkgydzxu.supabase.co";
-  var SBK = "sb_publishable_FxF-gC3o4iioQwJQ73Fy9g_JyS43Awf";
+  var SB = Auth.SB, SBK = Auth.SBK;
   var PUB = SB + "/storage/v1/object/public/midia/";
   var PERM = "Você não tem permissão para isso";
 
-  /* ---------- sessão (Supabase Auth via REST, mesma API do supabase-js) ---------- */
-  var AKEY = "sb-sfaxcrkbvmafpkgydzxu-auth-token", MEM = {};
-  var store = (function () {
-    var ls = null;
-    try { ls = window.localStorage; ls.setItem("__t", "1"); ls.removeItem("__t"); } catch (e) { ls = null; }
-    return {
-      get: function (k) { var v = null; try { if (ls) v = ls.getItem(k); } catch (e) {} return v != null ? v : k in MEM ? MEM[k] : null; },
-      set: function (k, v) { MEM[k] = v; try { if (ls) ls.setItem(k, v); } catch (e) {} },
-      del: function (k) { delete MEM[k]; try { if (ls) ls.removeItem(k); } catch (e) {} },
-    };
-  })();
+  /* ---------- sessão (cookie gerenciado por auth.js, compartilhado com login.html) ---------- */
   var SESSION = null, refreshT = null, refreshing = null;
-  function readStored() { try { var s = JSON.parse(store.get(AKEY) || "null"); return s && s.access_token ? s : null; } catch (e) { return null; } }
+  var readStored = Auth.read, authReq = Auth.authReq;
   function saveSession(s) {
-    if (s && !s.expires_at) s.expires_at = Math.floor(Date.now() / 1000) + (s.expires_in || 3600);
-    SESSION = s || null;
-    if (s) store.set(AKEY, JSON.stringify(s)); else store.del(AKEY);
+    SESSION = s ? Auth.save(s) : (Auth.clear(), null);
     clearTimeout(refreshT);
-    if (s) refreshT = setTimeout(function () { refreshSession().catch(function () {}); }, Math.max(5000, s.expires_at * 1000 - Date.now() - 60000));
-  }
-  function authReq(path, body, token) {
-    return fetch(SB + "/auth/v1/" + path, { method: "POST", headers: { apikey: SBK, Authorization: "Bearer " + (token || SBK), "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
-      .then(function (r) {
-        return r.text().then(function (t) {
-          var j = {}; try { j = t ? JSON.parse(t) : {}; } catch (e) {}
-          if (!r.ok) { var er = new Error(j.error_description || j.msg || j.message || "HTTP " + r.status); er.status = r.status; throw er; }
-          return j;
-        });
-      });
+    if (SESSION) refreshT = setTimeout(function () { refreshSession().catch(function () {}); }, Math.max(5000, SESSION.expires_at * 1000 - Date.now() - 60000));
   }
   function refreshSession() {
     if (!SESSION || !SESSION.refresh_token) return Promise.reject(new Error("sem sessão"));
@@ -163,13 +135,10 @@
   }
   var sb = {
     auth: {
-      signInWithPassword: function (c) {
-        return authReq("token?grant_type=password", c).then(function (s) { saveSession(s); return { data: { session: s, user: s.user }, error: null }; }, function (e) { return { data: {}, error: e }; });
-      },
       signOut: function () {
         var t = SESSION && SESSION.access_token;
         saveSession(null);
-        if (t) authReq("logout", {}, t).catch(function () {});
+        Auth.logout(t);
         return Promise.resolve({ error: null });
       },
     },
@@ -196,7 +165,7 @@
     if (!m || /^HTTP \d+|row-level security|permission denied|JWT|unauthorized/i.test(m)) return isPerm(e) ? PERM : "Não deu certo — tente de novo.";
     return m;
   }
-  /* toda leitura e gravação passa por aqui, com o token da sessão (ou a chave pública para visitantes) */
+  /* toda leitura e gravação passa por aqui, com o token da sessão  */
   function req(url, opt, retried) {
     opt = opt || {};
     return fresh().then(function () {
@@ -211,7 +180,9 @@
 
   /* ---------- funções ---------- */
   var ME = null, ROLE = "";
-  var ROLE_L = { adm: "Adm", marketing: "Marketing", comum: "Comum", visitante: "Visitante" };
+  var ROLE_L = { adm: "Adm", marketing: "Marketing", comum: "Comum", temporario: "Temporário" };
+  /* quem pode criar/comentar: logado e não temporário (o temporário só visualiza) */
+  function active() { return !!ME && ROLE !== "temporario"; }
   function staff() { return !!ME && (ROLE === "adm" || ROLE === "marketing"); }
   function canEditDem(d) { return !!ME && !!d && (staff() || (ROLE === "comum" && !!d.autorId && d.autorId === ME.id)); }
   function canNoteDel(n) { return !!ME && !!n && (staff() || (!!n.authorId && n.authorId === ME.id)); }
@@ -338,7 +309,8 @@
   function rowsSig(rows) { return (rows || []).map(function (r) { return r.id + "@" + r.updated_at; }).sort().join(","); }
   /* sondagem leve (só id e updated_at); a lista completa só é baixada quando algo mudou */
   function sync(force) {
-    if (syncing) return Promise.resolve();
+    /* sem login não há leitura: os dados só são baixados depois que a pessoa entra */
+    if (!ME || syncing) return Promise.resolve();
     syncing = true;
     var startedAt = Date.now();
     var pre = loaded && force !== true
@@ -548,24 +520,10 @@
   function fillClientSelects() {
     document.querySelectorAll(".x-cli").forEach(function (s) {
       var v = s.value;
-      s.innerHTML = '<option value="">Selecione…</option>' + S.clients.map(function (c) { return '<option value="' + c.id + '">' + esc(c.name) + "</option>"; }).join("") + (staff() ? '<option value="__new">+ Adicionar cliente…</option>' : "");
-      s.value = v === "__new" ? "" : v;
+      s.innerHTML = '<option value="">Selecione…</option>' + S.clients.map(function (c) { return '<option value="' + c.id + '">' + esc(c.name) + "</option>"; }).join("");
+      s.value = v;
     });
   }
-  document.querySelectorAll(".x-cli").forEach(function (s) {
-    var row = s.nextElementSibling, inp = row.querySelector("input"), b = row.querySelector("button");
-    s.addEventListener("change", function () { row.hidden = s.value !== "__new"; if (!row.hidden) inp.focus(); });
-    function add() {
-      if (!staff()) { toast(PERM); return; }
-      var n = inp.value.trim(); if (!n) { inp.focus(); return; }
-      var extra = S.clients.filter(function (x) { return !BRAND[x.id]; }).length;
-      var c = { id: uid(), name: n, color: AUTO[extra % AUTO.length], created: Date.now() };
-      S.clients.push(c); put("client", c); inp.value = ""; row.hidden = true;
-      fillClientSelects(); s.value = c.id; renderChips(); renderAll(); say("Cliente adicionado.");
-    }
-    b.addEventListener("click", add);
-    inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); add(); } });
-  });
 
   /* filters */
   $("#fTipo").innerHTML = opts(TIPOS, "", "Todos os tipos");
@@ -717,7 +675,7 @@
     function blank(h) { [].slice.call(B.children).forEach(function (el) { if (el.dataset.st) closeBody(el); dropEl(el); }); B.innerHTML = h; }
     if (!loaded) { blank('<div class="x-blank" role="status"><p>' + (loadFailed ? "Sem conexão — tentando de novo…" : "Carregando…") + "</p></div>"); return; }
     if (!S.demands.length) {
-      blank(ME ? '<div class="x-blank"><p>Nenhuma demanda ainda — clique em <b>+ Nova demanda</b>.</p><button class="x-cta" type="button" data-new>+ Nova demanda</button></div>' : '<div class="x-blank"><p>Nenhuma demanda ainda.</p></div>');
+      blank(active() ? '<div class="x-blank"><p>Nenhuma demanda ainda — clique em <b>+ Nova demanda</b>.</p><button class="x-cta" type="button" data-new>+ Nova demanda</button></div>' : '<div class="x-blank"><p>Nenhuma demanda ainda.</p></div>');
       return;
     }
     var list = S.demands.filter(function (d) {
@@ -887,7 +845,7 @@
     });
   });
   function addNote() {
-    if (!ME) { toast(PERM); return; }
+    if (!active()) { toast(PERM); return; }
     if (noteBusy || detBusy) return;
     var t = $("#nText").value.trim();
     if (!t) { $("#nText").focus(); return; }
@@ -919,7 +877,7 @@
 
   function openDem(id) {
     var d = id ? S.demands.find(function (x) { return x.id === id; }) : null;
-    if (!d && !ME) return;
+    if (!d && !active()) return;
     editDem = d;
     draftId = d ? d.id : uid();
     var ro = demRO = !!d && !canEditDem(d);
@@ -929,10 +887,10 @@
     $("#dBy").hidden = !(d && d.autorNome);
     $("#dBy").textContent = d && d.autorNome ? "Criado por " + d.autorNome : "";
     $("#dRo").hidden = !ro;
-    $("#dRo").textContent = ME ? "Somente leitura — você pode adicionar observações." : "Modo visitante — somente leitura.";
+    $("#dRo").textContent = active() ? "Somente leitura — você pode adicionar observações." : "Acesso temporário — somente leitura.";
     ["#dTitle", "#dClient", "#dType", "#dDesc", "#dStatus", "#dStart", "#dPost"].forEach(function (s) { $(s).disabled = ro; });
     ["#dFixT", "#dFixD", "#aiGen", "#mAiNote", "#mTools", "#mDrop", "#mLinkRow", "#dSave"].forEach(function (s) { var el = $(s); if (el) el.hidden = ro; });
-    $("#nRow").hidden = $("#nFix").hidden = !ME;
+    $("#nRow").hidden = $("#nFix").hidden = !active();
     $("#dCancel").textContent = ro ? "Fechar" : "Cancelar";
     $("#dTitle").value = d ? d.title : "";
     $("#dClient").value = d ? d.clientId : fc;
@@ -942,7 +900,6 @@
     $("#dPost").value = d ? d.post : "";
     $("#nText").value = "";
     $("#dErr").textContent = "";
-    $("#mDem .x-newcli").hidden = true;
     $("#mLink").value = ""; mediaNote("");
     $("#dDel").hidden = !d || ro;
     closeFix($("#mDem"));
@@ -990,9 +947,9 @@
   $("#dTitle").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); saveDem(); } });
   function saveDem(force) {
     if (detBusy) return;
-    if (!ME || demRO || (editDem && !canEditDem(editDem))) { if ($("#mDem").open && !demRO) toast(PERM); return; }
+    if (!active() || demRO || (editDem && !canEditDem(editDem))) { if ($("#mDem").open && !demRO) toast(PERM); return; }
     var title = $("#dTitle").value.trim(), cid = $("#dClient").value;
-    if (!title || !cid || cid === "__new") { $("#dErr").textContent = "Preencha o título e o cliente."; return; }
+    if (!title || !cid) { $("#dErr").textContent = "Preencha o título e o cliente."; return; }
     if (upN[draftId]) { $("#dErr").textContent = "Aguarde o envio dos arquivos terminar."; return; }
     var np = $("#dPost").value;
     if (force !== true && np && $("#dStatus").value !== "Standby" && $("#dStatus").value !== CAPT && (!editDem || wkStart(editDem.post) !== wkStart(np))) {
@@ -1055,13 +1012,13 @@
   function renderMedia() {
     $("#dGal").innerHTML = draftMedia.map(function (m, i) {
       return '<li><button class="x-tile" type="button" data-open="' + i + '" aria-label="Ver ' + esc(mLabel(m, i)) + '">' + tileInner(m) + "</button>" +
-        (demRO || !ME ? "" : '<button class="x-rm" type="button" data-rm="' + i + '" aria-label="Remover ' + esc(mLabel(m, i)) + '">' + X_ICON + "</button>") + "</li>";
+        (demRO || !active() ? "" : '<button class="x-rm" type="button" data-rm="' + i + '" aria-label="Remover ' + esc(mLabel(m, i)) + '">' + X_ICON + "</button>") + "</li>";
     }).join("");
   }
   function mediaNote(t, warn) { var n = $("#mNote"); n.textContent = t; n.classList.toggle("is-warn", !!warn); }
   $("#dGal").addEventListener("click", function (e) {
     var rm = e.target.closest("[data-rm]");
-    if (rm && (demRO || !ME)) return;
+    if (rm && (demRO || !active())) return;
     if (rm) { draftMedia.splice(+rm.dataset.rm, 1); renderMedia(); mediaNote("Arquivo removido. Salve para confirmar."); return; }
     var op = e.target.closest("[data-open]");
     if (op) openLb(draftMedia, +op.dataset.open, $("#dTitle").value.trim());
@@ -1084,7 +1041,7 @@
   }
   function addFiles(files) {
     if (detBusy) return;
-    if (!ME || demRO) { if (files && files.length) toast(PERM); return; }
+    if (!active() || demRO) { if (files && files.length) toast(PERM); return; }
     var permHit = false;
     var arr = [].slice.call(files || []).filter(function (f) { return /^(image|video)\//.test(f.type); });
     if (!arr.length) { if (files && files.length) mediaNote("Só fotos e vídeos são aceitos.", true); return; }
@@ -1134,7 +1091,7 @@
   $("#mDem").addEventListener("dragover", function (e) { e.preventDefault(); });
   $("#mDem").addEventListener("drop", function (e) { if (!drop.contains(e.target)) { e.preventDefault(); addFiles(e.dataTransfer && e.dataTransfer.files); } });
   function addLink() {
-    if (!ME || demRO || detBusy) return;
+    if (!active() || demRO || detBusy) return;
     var u = $("#mLink").value.trim();
     if (!u) { $("#mLink").focus(); return; }
     if (!/^https?:\/\//i.test(u)) u = "https://" + u;
@@ -1304,7 +1261,6 @@
     $("#ePlace").value = e ? e.place : "";
     $("#eObs").value = e ? e.obs : "";
     $("#eErr").textContent = "";
-    $("#mEv .x-newcli").hidden = true;
     $("#eDel").hidden = !e || ro;
     closeFix($("#mEv"));
     eHint();
@@ -1324,7 +1280,7 @@
       var wn = weekCount(date, editEv ? editEv.id : "");
       if (wn >= WEEK_MAX) { weekFull(wn, "#eDate", function () { saveEv(true); }); return; }
     }
-    var data = { kind: $("#eKind").value, title: title, clientId: cid === "__new" ? "" : cid, date: date, start: $("#eStart").value, end: $("#eEnd").value, place: $("#ePlace").value.trim(), obs: $("#eObs").value.trim() };
+    var data = { kind: $("#eKind").value, title: title, clientId: cid, date: date, start: $("#eStart").value, end: $("#eEnd").value, place: $("#ePlace").value.trim(), obs: $("#eObs").value.trim() };
     var obj = editEv && S.events.indexOf(editEv) > -1 ? editEv : editEv && S.events.find(function (x) { return x.id === editEv.id; });
     if (obj) Object.assign(obj, data); else { obj = Object.assign({ id: editEv ? editEv.id : uid() }, data); S.events.push(obj); }
     selDate = date; cur = new Date(+date.slice(0, 4), +date.slice(5, 7) - 1, 1);
@@ -1533,7 +1489,7 @@
   var AI_URL = "https://text.pollinations.ai/openai";
   var AI_SYS = 'Você é social media de instituições de ensino. Escreva em português do Brasil, tom adequado ao cliente. Não invente fatos, preços, promoções, aula grátis, nomes de pessoas, telefones nem endereços. Use apenas o que está no título e na descrição. Responda SOMENTE com JSON válido, sem markdown: {"roteiro": "...", "legenda": "..."}. O roteiro é simples, para vídeo vertical de 30 a 60 segundos, em cenas numeradas, cada uma com o que filmar e o texto na tela ou fala. A legenda tem 2 a 4 frases curtas, uma chamada final leve e 3 a 6 hashtags.';
   var AI_ERR = "A IA não respondeu agora, tente de novo em instantes.";
-  var ai = { seq: 0, ctl: null, timer: 0, busy: false, lastText: "", lastTitle: "" };
+  var ai = { seq: 0, ctl: null, busy: false, lastText: "" };
   var CAP_RE = /(?:^|\n)[ \t]*LEGENDA[ \t]*:?[ \t]*\n/;
   function capOf(desc) {
     var s = String(desc || ""), m = CAP_RE.exec(s);
@@ -1554,25 +1510,24 @@
     var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(t) : Promise.reject(new Error("sem clipboard"));
     p.then(function () { toast("Legenda copiada ✓"); }).catch(fallback);
   }
-  function aiEligible(t) { t = t.trim(); return t.length >= 10 || t.split(/\s+/).filter(Boolean).length >= 3; }
   function aiUI() {
     var btn = $("#aiGen");
     $("#aiSt").hidden = !ai.busy;
     btn.disabled = ai.busy || !$("#dTitle").value.trim();
     btn.setAttribute("aria-busy", ai.busy ? "true" : "false");
-    btn.innerHTML = ai.busy ? '<span class="x-spin" aria-hidden="true"></span>Gerando…' : "Gerar de novo ✨";
+    btn.innerHTML = ai.busy ? '<span class="x-spin" aria-hidden="true"></span>Gerando…' : ai.lastText ? "Gerar de novo ✨" : "Gerar texto ✨";
     $("#dDesc").placeholder = ai.busy ? "✨ A IA está criando o roteiro…" : "";
     $("#aiCopy").hidden = !capOf($("#dDesc").value);
   }
   function aiStop() {
-    clearTimeout(ai.timer); ai.seq++;
+    ai.seq++;
     if (ai.ctl) { ai.ctl.quiet = true; ai.ctl.abort(); ai.ctl = null; }
     ai.busy = false;
   }
-  function aiReset() { aiStop(); ai.lastText = ""; ai.lastTitle = ""; aiUI(); }
+  function aiReset() { aiStop(); ai.lastText = ""; aiUI(); }
   function aiPrompt(title, useDesc) {
     var cid = $("#dClient").value, type = $("#dType").value;
-    var c = cid && cid !== "__new" ? cli(cid) : null, b = c ? BRAND[c.id] : null;
+    var c = cid ? cli(cid) : null, b = c ? BRAND[c.id] : null;
     var slides = type === "Carrossel" || type === "Designer";
     var desc = useDesc ? $("#dDesc").value.trim() : "";
     var notes = draftNotes.map(function (n) { return "- " + n.text; }).join("\n");
@@ -1597,13 +1552,13 @@
     return { roteiro: s, legenda: "" };
   }
   function aiFormat(p) { return "ROTEIRO\n" + p.roteiro + (p.legenda ? "\n\nLEGENDA\n" + p.legenda : ""); }
-  function aiRun(auto) {
+  function aiRun() {
     var title = $("#dTitle").value.trim();
     if (!title) return;
-    var useDesc = !auto && $("#dDesc").value.trim() && $("#dDesc").value !== ai.lastText;
+    var useDesc = $("#dDesc").value.trim() && $("#dDesc").value !== ai.lastText;
     aiStop();
     var seq = ai.seq, did = draftId, ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, 60000);
-    ai.ctl = ctl; ai.busy = true; ai.lastTitle = title; aiUI();
+    ai.ctl = ctl; ai.busy = true; aiUI();
     fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
       body: JSON.stringify({ model: "openai", messages: [{ role: "system", content: AI_SYS }, { role: "user", content: aiPrompt(title, useDesc) }] }) })
       .then(okRes).then(function (r) { return r.json(); })
@@ -1612,50 +1567,35 @@
         var txt = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
         if (!txt || !String(txt).trim()) throw new Error("vazio");
         var f = $("#dDesc");
-        if (auto && f.value.trim() && f.value !== ai.lastText) return; /* a pessoa já escreveu: não sobrescrever */
         f.value = aiFormat(aiParse(txt)); ai.lastText = f.value;
         f.dispatchEvent(new Event("input", { bubbles: true }));
         say("Roteiro e legenda criados pela IA.");
       })
-      .catch(function () { if (!ctl.quiet && seq === ai.seq) { ai.lastTitle = ""; toast(AI_ERR); } })
+      .catch(function () { if (!ctl.quiet && seq === ai.seq) toast(AI_ERR); })
       .then(function () { clearTimeout(to); if (seq === ai.seq) { ai.busy = false; ai.ctl = null; aiUI(); } });
   }
-  function aiAuto() {
-    clearTimeout(ai.timer);
-    if (editDem || !$("#mDem").open) return;
-    var t = $("#dTitle").value.trim(), d = $("#dDesc").value;
-    if (!aiEligible(t) || t === ai.lastTitle) return;
-    if (d.trim() && d !== ai.lastText) return;
-    aiRun(true);
-  }
-  $("#dTitle").addEventListener("input", function () {
-    aiUI(); clearTimeout(ai.timer);
-    if (!editDem) ai.timer = setTimeout(aiAuto, 2000);
-  });
-  $("#dTitle").addEventListener("blur", function () { if (!editDem) aiAuto(); });
+  /* o texto só é gerado quando a pessoa clica em "Gerar texto"; digitar o título não dispara a IA */
+  $("#dTitle").addEventListener("input", aiUI);
   $("#dDesc").addEventListener("input", aiUI);
   $("#mDem").addEventListener("close", aiStop);
   $("#aiGen").addEventListener("click", function () {
     if (ai.busy || !$("#dTitle").value.trim()) return;
     var d = $("#dDesc").value;
     if (d.trim() && d !== ai.lastText) { $("#mAiConf").showModal(); return; }
-    aiRun(false);
+    aiRun();
   });
   $("#aiConfNo").addEventListener("click", function () { $("#mAiConf").close(); });
-  $("#aiConfYes").addEventListener("click", function () { $("#mAiConf").close(); aiRun(false); });
+  $("#aiConfYes").addEventListener("click", function () { $("#mAiConf").close(); aiRun(); });
   $("#aiCopy").addEventListener("click", function () { copyCap($("#dDesc").value, selectCap); });
 
-  /* ---------- login ---------- */
-  function closeDialogs() { document.querySelectorAll("dialog[open]").forEach(function (d) { d.close(); }); }
-  function showLogin(on) {
-    $("#login").hidden = !on;
-    document.body.classList.toggle("x-locked", on);
-    document.documentElement.classList.toggle("x-onlogin", on);
-    if (!on) window.scrollTo(0, 0);
-    if (on) { closeDialogs(); setTimeout(function () { $("#lUser").focus(); }, 0); }
+  /* ---------- sessão: entrada e saída (a tela de login é a página login.html) ---------- */
+  function unlock() {
+    document.body.classList.remove("x-locked");
+    document.documentElement.classList.remove("x-onlogin");
+    window.scrollTo(0, 0);
   }
   function loadProfile(id) {
-    return req(SB + "/rest/v1/usuario?id=eq." + encodeURIComponent(id) + "&select=id,nome,usuario,funcao", { cache: "no-store" })
+    return req(SB + "/rest/v1/usuario?id=eq." + encodeURIComponent(id) + "&select=*", { cache: "no-store" })
       .then(function (r) { return r.json(); }).then(function (rows) { return (rows && rows[0]) || null; });
   }
   function applyRole() {
@@ -1665,7 +1605,8 @@
     $("#wRole").textContent = ROLE_L[r] || "";
     $("#bOut").textContent = ME ? "Sair" : "Fazer login";
     $("#bImport").hidden = !staff();
-    $("#bNewDem").hidden = !ME;
+    $("#bNewDem").hidden = !active();
+    $("#bExport").hidden = ROLE === "temporario";
     $("#bNewEv").hidden = $("#bNewDay").hidden = !staff();
     $("#fullSave").hidden = !staff();
     var adm = !!ME && ROLE === "adm";
@@ -1677,70 +1618,64 @@
     refresh();
     migrate();
   }
+  /* acesso temporário: mostra o tempo restante e sai sozinho quando acaba */
+  var expT = null;
+  function leftText(ms) {
+    var m = Math.max(0, Math.ceil(ms / 60000)), h = Math.floor(m / 60);
+    return h ? h + "h" + (m % 60 ? " " + (m % 60) + "min" : "") : m + " min";
+  }
+  function expTick() {
+    if (!ME || !ME.expira_em) return;
+    var ms = Date.parse(ME.expira_em) - Date.now();
+    if (ms <= 0) { clearInterval(expT); sb.auth.signOut(); Auth.toLogin("expirado"); return; }
+    $("#wRole").textContent = "Temporário · " + leftText(ms);
+  }
   function enter(p) {
-    ME = p || null;
-    ROLE = p ? (ROLE_L[p.funcao] && p.funcao !== "visitante" ? p.funcao : "comum") : "visitante";
-    showLogin(false); applyRole();
+    ME = p;
+    ROLE = ROLE_L[p.funcao] && p.funcao !== "visitante" ? p.funcao : "comum";
+    unlock(); applyRole();
+    /* baixa os dados já com a sessão do usuário */
+    loaded = false; loadFailed = false; lastSig = ""; SERVER_IDS = {};
+    setSync("loading"); sync(true);
+    clearInterval(expT);
+    if (p.expira_em) { expTick(); expT = setInterval(expTick, 30000); }
+    var hello = null;
+    try { hello = sessionStorage.getItem("gestao_hello"); sessionStorage.removeItem("gestao_hello"); } catch (e) {}
+    if (hello) say("Olá, " + hello + "!");
   }
-  function leave(msg) {
-    ME = null; ROLE = "";
-    applyRole(); showLogin(true);
-    $("#lErr").textContent = msg || "";
-  }
-  function sessionLost() { saveSession(null); if (ME) leave("Sua sessão expirou — entre de novo."); }
-  function loginBusy(on, t) { var b = $("#lGo"); b.disabled = on; b.setAttribute("aria-busy", on ? "true" : "false"); b.textContent = on ? t || "Entrando…" : "Entrar"; }
-  function doLogin() {
-    if ($("#lGo").disabled) return;
-    var u = $("#lUser").value, p = $("#lPass").value;
-    $("#lErr").textContent = "";
-    if (!u.trim() || !p) { $("#lErr").textContent = "Usuário ou senha incorretos"; return; }
-    loginBusy(true);
-    sb.auth.signInWithPassword({ email: u.toLowerCase().trim() + "@gestao.app", password: p }).then(function (res) {
-      if (res.error) { $("#lErr").textContent = res.error.status && res.error.status < 500 ? "Usuário ou senha incorretos" : "Sem conexão — tente de novo."; return; }
-      return loadProfile(res.data.user.id).then(function (pr) {
-        if (!pr) { sb.auth.signOut(); $("#lErr").textContent = "Este usuário ainda não tem perfil. Fale com o administrador."; return; }
-        $("#lPass").value = ""; enter(pr); say("Olá, " + String(pr.nome).split(" ")[0] + "!");
-      });
-    }).catch(function () { $("#lErr").textContent = "Sem conexão — tente de novo."; }).then(function () { loginBusy(false); });
-  }
-  $("#lGo").addEventListener("click", doLogin);
-  ["#lUser", "#lPass"].forEach(function (id) {
-    $(id).addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
-  });
-  document.querySelectorAll(".x-eye[data-pw]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var inp = document.getElementById(b.dataset.pw), show = inp.type === "password";
-      inp.type = show ? "text" : "password";
-      b.setAttribute("aria-pressed", show ? "true" : "false");
-      b.setAttribute("aria-label", show ? "Ocultar senha" : "Mostrar senha");
-    });
-  });
-  $("#lGuest").addEventListener("click", function () { $("#lErr").textContent = ""; enter(null); });
+  /* sessão perdida ou expirada: volta para a página de login */
+  function sessionLost() { saveSession(null); ME = null; Auth.toLogin("expirada"); }
   $("#bOut").addEventListener("click", function () {
-    if (!ME) { showLogin(true); return; }
-    var go = function () { sb.auth.signOut(); leave(""); };
+    var go = function () { sb.auth.signOut(); Auth.toLogin(); };
     if (pendingIds().length) { say("Salvando antes de sair…"); whenSaved().then(go); } else go();
+  });
+  /* saiu em outra aba (cookie apagado): esta aba também volta ao login */
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && ME && !readStored()) sessionLost();
   });
   function restore() {
     var s = readStored();
-    if (!s) { showLogin(true); return; }
-    saveSession(s); loginBusy(true);
+    if (!s) { Auth.toLogin(); return; }
+    saveSession(s);
     fresh().then(function () {
       if (!SESSION) return null;
       return loadProfile(SESSION.user && SESSION.user.id);
     }).then(function (pr) {
-      if (pr) enter(pr);
-      else { if (SESSION) sb.auth.signOut(); showLogin(true); }
-    }, function () { showLogin(true); $("#lErr").textContent = "Sem conexão — tente de novo."; })
-      .then(function () { loginBusy(false); });
+      if (pr && Auth.expired(pr)) { sb.auth.signOut(); Auth.toLogin("expirado"); }
+      else if (pr) enter(pr);
+      else if (SESSION) { sb.auth.signOut(); Auth.toLogin(); }
+    }, function () { $("#boot").textContent = "Sem conexão — tentando de novo…"; setTimeout(restore, 5000); });
   }
 
   /* ---------- usuários (só adm) ---------- */
   var USERS = [], usrLoaded = false, usrErr = false, editUsr = null;
-  var FUNC_C = { adm: "var(--chart-1)", marketing: "var(--chart-2)", comum: "var(--chart-muted)" };
+  var FUNC_C = { adm: "var(--chart-1)", marketing: "var(--chart-2)", comum: "var(--chart-muted)", temporario: "var(--fill-system-orange)" };
   $("#uDel").innerHTML = DEL_HTML;
   function loadUsers() {
-    return req(SB + "/rest/v1/usuario?select=id,nome,usuario,funcao,criado_em&order=nome.asc", { cache: "no-store" })
+    /* apaga os temporários vencidos antes de listar (se o script do banco ainda não foi rodado, ignora) */
+    return sb.rpc("limpar_temporarios").then(function () {
+      return req(SB + "/rest/v1/usuario?select=*&order=nome.asc", { cache: "no-store" });
+    })
       .then(function (r) { return r.json(); })
       .then(function (rows) { USERS = Array.isArray(rows) ? rows : []; usrLoaded = true; usrErr = false; renderUsers(); }, function () { usrLoaded = true; usrErr = true; renderUsers(); });
   }
@@ -1750,20 +1685,25 @@
     if (usrErr) { L.innerHTML = '<div class="x-blank"><p>Não consegui carregar os usuários.</p><button class="x-btn" type="button" data-ureload>Tentar de novo</button></div>'; return; }
     if (!USERS.length) { L.innerHTML = '<div class="x-blank"><p>Nenhum usuário ainda.</p></div>'; return; }
     L.innerHTML = USERS.map(function (u) {
-      var me = ME && u.id === ME.id;
-      return '<article class="x-card" data-uid="' + esc(u.id) + '" style="' + tv("cc", FUNC_C[u.funcao] || "var(--chart-muted)") + '" tabindex="0" aria-label="Editar ' + esc(u.nome) + '">' +
+      var me = ME && u.id === ME.id, tmp = u.funcao === "temporario";
+      var left = tmp && u.expira_em ? Date.parse(u.expira_em) - Date.now() : 0;
+      var extra = tmp ? "<span>" + (left > 0 ? "expira em " + leftText(left) : "expirado") + "</span>" : "";
+      return '<article class="x-card" data-uid="' + esc(u.id) + '"' + (tmp ? ' data-tmp="1"' : "") + ' style="' + tv("cc", FUNC_C[u.funcao] || "var(--chart-muted)") + '" tabindex="0" aria-label="' + (tmp ? "Usuário temporário " : "Editar ") + esc(u.nome) + '">' +
         '<span class="x-thumb"><span class="x-av" style="--cc:#475569" aria-hidden="true">' + initials(u.nome || "?") + "</span></span>" +
-        "<div><h4>" + esc(u.nome) + (me ? " (você)" : "") + '</h4><div class="x-meta"><span>' + esc(u.usuario) + "</span>" + badge(ROLE_L[u.funcao] || u.funcao, FUNC_C[u.funcao] || "var(--chart-muted)") + "</div></div>" +
-        '<div class="x-cact"><button class="x-btn" type="button" data-uedit>Editar</button>' + (me ? "" : '<button class="x-del" type="button" data-udel>' + DEL_HTML + "</button>") + "</div></article>";
+        "<div><h4>" + esc(u.nome) + (me ? " (você)" : "") + '</h4><div class="x-meta"><span>' + esc(u.usuario) + "</span>" + badge(ROLE_L[u.funcao] || u.funcao, FUNC_C[u.funcao] || "var(--chart-muted)") + extra + "</div></div>" +
+        '<div class="x-cact">' + (tmp ? "" : '<button class="x-btn" type="button" data-uedit>Editar</button>') + (me ? "" : '<button class="x-del" type="button" data-udel>' + DEL_HTML + "</button>") + "</div></article>";
     }).join("");
   }
+  /* os prazos dos temporários andam sozinhos na lista */
+  setInterval(function () { if (ME && ROLE === "adm" && usrLoaded && !usrErr && !$("#p-usr").hidden && USERS.some(function (u) { return u.funcao === "temporario"; })) renderUsers(); }, 60000);
   $("#usrList").addEventListener("click", function (e) {
     if (e.target.closest("[data-ureload]")) { usrLoaded = false; renderUsers(); loadUsers(); return; }
     var c = e.target.closest("[data-uid]"); if (!c) return;
     if (e.target.closest("[data-udel]")) { delUsr(c.dataset.uid); return; }
+    if (c.dataset.tmp) return; /* temporário: só dá para encerrar o acesso */
     openUsr(c.dataset.uid);
   });
-  $("#usrList").addEventListener("keydown", function (e) { if (e.key === "Enter" && e.target.dataset && e.target.dataset.uid) openUsr(e.target.dataset.uid); });
+  $("#usrList").addEventListener("keydown", function (e) { if (e.key === "Enter" && e.target.dataset && e.target.dataset.uid && !e.target.dataset.tmp) openUsr(e.target.dataset.uid); });
   $("#bNewUsr").addEventListener("click", function () { openUsr(null); });
   function openUsr(id) {
     if (!ME || ROLE !== "adm") return;
@@ -1814,7 +1754,7 @@
     var u = USERS.find(function (x) { return x.id === id; });
     if (!u || !ME || ROLE !== "adm") return;
     if (u.id === ME.id) { toast("Você não pode excluir o próprio usuário."); return; }
-    ask("Excluir o usuário " + u.nome + "?", function () {
+    ask(u.funcao === "temporario" ? "Encerrar o acesso temporário de " + u.nome + "?" : "Excluir o usuário " + u.nome + "?", function () {
       sb.rpc("admin_excluir_usuario", { p_id: u.id }).then(function (res) {
         if (res.error) { toast(rpcMsg(res.error)); return; }
         if ($("#mUsr").open) $("#mUsr").close();
@@ -1823,12 +1763,47 @@
     });
   }
 
+  /* ---------- usuário temporário (só adm): só visualiza e some sozinho ---------- */
+  var tmpInfo = "";
+  function tmpBusy(on) { $("#tSave").disabled = on; $("#tSave").textContent = on ? "Criando…" : "Criar acesso"; }
+  function openTmp() {
+    if (!ME || ROLE !== "adm") return;
+    $("#tUser").value = ""; $("#tHoras").value = "24"; $("#tErr").textContent = "";
+    $("#tmpForm").hidden = false; $("#tmpDone").hidden = true;
+    $("#tSave").hidden = false; tmpBusy(false); $("#tCancel").textContent = "Cancelar";
+    $("#mTmp").showModal(); setTimeout(function () { $("#tUser").focus(); }, 0);
+  }
+  function saveTmp() {
+    if (!ME || ROLE !== "adm" || $("#tSave").disabled) return;
+    var user = $("#tUser").value.toLowerCase().trim(), horas = +$("#tHoras").value;
+    if (!/^[a-z0-9._-]{3,50}$/.test(user)) { $("#tErr").textContent = "Usuário: de 3 a 50 caracteres — letras minúsculas, números, ponto, hífen ou sublinhado, sem espaços."; return; }
+    $("#tErr").textContent = ""; tmpBusy(true);
+    sb.rpc("admin_criar_temporario", { p_usuario: user, p_horas: horas }).then(function (res) {
+      tmpBusy(false);
+      var d = res.data;
+      if (res.error || !d || !d.senha) {
+        var m = res.error && res.error.status === 404 ? "Falta rodar o script usuario_temporario.sql no Supabase." : rpcMsg(res.error);
+        $("#tErr").textContent = m; return;
+      }
+      var ate = fmtTs(Date.parse(d.expira_em));
+      $("#tCredUser").textContent = d.usuario; $("#tCredPass").textContent = d.senha; $("#tCredTo").textContent = ate;
+      tmpInfo = "Acesso temporário — Gestão de Conteúdo\nEndereço: " + location.href.replace(/[?#].*$/, "").replace(/[^/]*$/, "") + "\nUsuário: " + d.usuario + "\nSenha: " + d.senha + "\nVálido até: " + ate;
+      $("#tmpForm").hidden = true; $("#tmpDone").hidden = false; $("#tSave").hidden = true; $("#tCancel").textContent = "Fechar";
+      loadUsers();
+    });
+  }
+  $("#bNewTmp").addEventListener("click", openTmp);
+  $("#tSave").addEventListener("click", saveTmp);
+  $("#tUser").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); saveTmp(); } });
+  $("#tCopy").addEventListener("click", function () {
+    var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(tmpInfo) : Promise.reject(new Error("sem clipboard"));
+    p.then(function () { toast("Dados copiados ✓"); }, function () { toast("Não consegui copiar — selecione e copie os dados na tela."); });
+  });
+
   function renderAll() { renderBoard(); renderCal(); renderAvisos(); }
   fillClientSelects();
   applyTheme();
   renderChips();
   renderAll();
-  setSync("loading");
-  sync();
   restore();
 })();
