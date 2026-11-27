@@ -901,8 +901,6 @@ dialog.x-modal::backdrop { background: rgba(0, 0, 0, 0.45); }
 .x-eye[aria-pressed="true"] .x-eye-off { display: block; }
 .x-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .x-grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-.x-newcli { display: flex; gap: 8px; margin-top: 6px; }
-.x-newcli[hidden] { display: none; }
 .x-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .x-notes li { background: var(--fill-tertiary); border-radius: var(--r-s); padding: 8px 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
 .x-notes small { font: var(--type-caption); color: var(--text-secondary); }
@@ -1175,6 +1173,9 @@ body.x-locked .x-boot { display: grid; min-height: 100vh; place-items: center; m
 .x-by { margin: -6px 0 0; font: var(--type-caption); color: var(--text-secondary); }
 .x-ro { margin: 0; padding: 8px 12px; border-radius: var(--r-s); background: var(--fill-tertiary); font: var(--type-caption); color: var(--text-secondary); }
 .x-in:disabled { opacity: 1; color: var(--text-primary); background: var(--fill-tertiary); cursor: default; }
+.x-cred { display: grid; gap: 8px; padding: 14px 16px; border-radius: var(--r-s); background: var(--fill-tertiary); font: var(--type-small); }
+.x-cred span { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; color: var(--text-secondary); }
+.x-cred b { font-family: var(--x-mono); font-weight: 600; color: var(--text-primary); user-select: all; overflow-wrap: anywhere; }
 .x-uhint { margin: 0; font: var(--type-caption); color: var(--text-secondary); }
 
 @media (min-width: 641px) { #bFilt { display: none; } }

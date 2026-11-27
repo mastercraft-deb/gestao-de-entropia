@@ -3,7 +3,7 @@
   "use strict";
   var $ = function (s) { return document.querySelector(s); };
   var err = $("#lErr"), go = $("#lGo");
-  var AVISOS = { expirada: "Sua sessão expirou — entre de novo." };
+  var AVISOS = { expirada: "Sua sessão expirou — entre de novo.", expirado: "Seu acesso temporário terminou." };
 
   var aviso = new URLSearchParams(location.search).get("aviso");
   if (AVISOS[aviso]) err.textContent = AVISOS[aviso];
@@ -23,6 +23,7 @@
     Auth.signIn(u, p).then(function (s) {
       return Auth.profile(s).then(function (pr) {
         if (!pr) { Auth.logout(s.access_token); err.textContent = "Este usuário ainda não tem perfil. Fale com o administrador."; busy(false); return; }
+        if (Auth.expired(pr)) { Auth.logout(s.access_token); err.textContent = "Este acesso temporário expirou."; busy(false); return; }
         Auth.save(s);
         try { sessionStorage.setItem("gestao_hello", String(pr.nome).split(" ")[0]); } catch (e) {}
         Auth.toHome();

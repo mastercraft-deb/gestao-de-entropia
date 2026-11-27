@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
-    <title>Gestão de Entropia</title>
+    <title>Gestão de Conteúdo – Instagram</title>
     <script src="auth.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -30,7 +30,7 @@
             </div>
             <div class="x-hclient" id="hClient" hidden></div>
             <div class="x-htitle">
-              <h1>Gestão de Entropia</h1>
+              <h1>Gestão de Conteúdo – Instagram</h1>
               <p id="hSub">Todos os clientes</p>
               <div class="x-sw" id="hSw"></div>
             </div>
@@ -95,6 +95,7 @@
         <section class="x-panel" id="p-usr" role="tabpanel" aria-labelledby="tab-usr" hidden>
           <div class="x-bar">
             <p class="x-uhint x-grow">Quem pode entrar e o que cada um pode fazer.</p>
+            <button class="x-btn" id="bNewTmp" type="button">+ Usuário temporário</button>
             <button class="x-cta" id="bNewUsr" type="button">+ Novo usuário</button>
           </div>
           <div class="x-board" id="usrList"></div>
@@ -110,7 +111,6 @@
           <div class="x-fix" id="dFixT" data-fix="dTitle" data-title><button class="x-btn x-fixbtn" type="button">Corrigir texto ✨</button><div class="x-fixpanel" role="region" aria-label="Correções do título" hidden></div></div>
           <div class="x-grid2">
             <div class="x-field"><span>Cliente*</span><select class="x-in x-cli" id="dClient" aria-label="Cliente"></select>
-              <div class="x-newcli" hidden><input class="x-in" placeholder="Nome do cliente" aria-label="Nome do novo cliente" /><button class="btn" type="button">Adicionar</button></div>
             </div>
             <label class="x-field"><span>Tipo de conteúdo</span><select class="x-in" id="dType"></select></label>
           </div>
@@ -118,7 +118,7 @@
           <label class="x-field"><span>Descrição / legenda</span><textarea class="x-in" id="dDesc"></textarea></label>
           <div class="x-ai" id="aiBox">
             <p class="x-aist" id="aiSt" role="status" aria-live="polite" hidden><span class="x-spin" aria-hidden="true"></span><span>✨ A IA está criando o roteiro…</span></p>
-            <button class="x-btn" type="button" id="aiGen" disabled>Gerar de novo ✨</button>
+            <button class="x-btn" type="button" id="aiGen" disabled>Gerar texto ✨</button>
             <button class="x-btn" type="button" id="aiCopy" hidden>Copiar legenda</button>
             <p class="x-ainote" id="mAiNote">Rascunho gerado por IA — revise antes de postar.</p>
           </div>
@@ -166,7 +166,6 @@
           <div class="x-grid2">
             <label class="x-field"><span>Tipo</span><select class="x-in" id="eKind"></select></label>
             <div class="x-field"><span>Cliente</span><select class="x-in x-cli" id="eClient" aria-label="Cliente"></select>
-              <div class="x-newcli" hidden><input class="x-in" placeholder="Nome do cliente" aria-label="Nome do novo cliente" /><button class="btn" type="button">Adicionar</button></div>
             </div>
           </div>
           <label class="x-field"><span>Título*</span><input class="x-in" id="eTitle" /></label>
@@ -184,6 +183,31 @@
             <button class="x-del" type="button" id="eDel"></button>
             <button class="x-btn" type="button" id="eCancel" data-close>Cancelar</button>
             <button class="x-cta" type="button" id="eSave">Salvar</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="x-modal" id="mTmp" aria-labelledby="mTmpT">
+        <form class="x-form" id="formTmp" novalidate>
+          <h2 id="mTmpT">Usuário temporário</h2>
+          <div id="tmpForm">
+            <label class="x-field"><span>Usuário*</span><input class="x-in" id="tUser" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ex.: visita.cliente" /></label>
+            <label class="x-field"><span>Duração do acesso</span><select class="x-in" id="tHoras"><option value="1">1 hora</option><option value="2">2 horas</option><option value="6">6 horas</option><option value="24" selected>24 horas</option></select></label>
+            <p class="x-uhint">Só pode visualizar: não cria, edita nem exclui nada. A senha é gerada automaticamente e o acesso é excluído ao fim do prazo.</p>
+            <p class="x-err" id="tErr"></p>
+          </div>
+          <div id="tmpDone" hidden>
+            <p class="x-uhint">Acesso criado. Copie agora: a senha não será mostrada de novo.</p>
+            <div class="x-cred">
+              <span>Usuário <b id="tCredUser"></b></span>
+              <span>Senha <b id="tCredPass"></b></span>
+              <span>Válido até <b id="tCredTo"></b></span>
+            </div>
+            <button class="x-btn" type="button" id="tCopy">Copiar dados</button>
+          </div>
+          <div class="x-foot">
+            <button class="x-btn" type="button" data-close id="tCancel">Cancelar</button>
+            <button class="x-cta" type="button" id="tSave">Criar acesso</button>
           </div>
         </form>
       </dialog>

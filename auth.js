@@ -67,7 +67,7 @@
   function signIn(user, pass) { return authReq("token?grant_type=password", { email: String(user).toLowerCase().trim() + "@gestao.app", password: pass }); }
   function logout(token) { if (token) authReq("logout", {}, token, { keepalive: true }).catch(function () {}); }
   function profile(s) {
-    return fetch(SB + "/rest/v1/usuario?id=eq." + encodeURIComponent(s.user.id) + "&select=id,nome,usuario,funcao", {
+    return fetch(SB + "/rest/v1/usuario?id=eq." + encodeURIComponent(s.user.id) + "&select=*", {
       cache: "no-store", headers: { apikey: SBK, Authorization: "Bearer " + s.access_token },
     }).then(function (r) {
       if (!r.ok) { var er = new Error("HTTP " + r.status); er.status = r.status; throw er; }
@@ -75,10 +75,13 @@
     }).then(function (rows) { return (rows && rows[0]) || null; });
   }
 
+  /* acesso temporário vencido (o banco também recusa; aqui só avisamos e saímos) */
+  function expired(pr) { return !!pr && pr.funcao === "temporario" && (!pr.expira_em || Date.parse(pr.expira_em) <= Date.now()); }
+
   function toLogin(aviso) { location.replace(LOGIN + (aviso ? "?aviso=" + encodeURIComponent(aviso) : "")); }
   function toHome() { location.replace(HOME); }
 
-  window.Auth = { SB: SB, SBK: SBK, read: read, save: save, clear: clear, authReq: authReq, signIn: signIn, logout: logout, profile: profile, toLogin: toLogin, toHome: toHome };
+  window.Auth = { SB: SB, SBK: SBK, read: read, save: save, clear: clear, authReq: authReq, signIn: signIn, logout: logout, profile: profile, expired: expired, toLogin: toLogin, toHome: toHome };
 
   /* guarda de página: o sistema exige sessão, e quem já entrou pula o login */
   var page = document.documentElement.getAttribute("data-page");
