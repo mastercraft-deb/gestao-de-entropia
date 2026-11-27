@@ -68,7 +68,7 @@
     return '<span class="x-av ' + (cls || "") + '" style="' + tv("cc", c.color) + '" aria-hidden="true">' + (c.id ? initials(c.name) : "?") + "</span>";
   }
   function cchip(c) { return '<span class="x-cchip x-cct" style="' + tv("cc", c.color) + '">' + logo(c) + "<span>" + esc(c.name) + "</span></span>"; }
-  /* logos are cloned from the static header images so the page stays self-contained */
+  /* os logos vêm da pasta imagens/ (via as <img> do cabeçalho) e são clonados onde forem usados */
   function hydrate(root) {
     (root || document).querySelectorAll("[data-logo]").forEach(function (el) {
       if (el.firstChild) return;
@@ -76,11 +76,6 @@
       var i = src.cloneNode(false); i.removeAttribute("id"); i.alt = ""; el.appendChild(i);
     });
   }
-  /* cada logo existe uma vez só no HTML (versão pequena, no login); o cabeçalho reaproveita a mesma imagem */
-  ["cp", "fl", "pa"].forEach(function (k) {
-    var a = document.querySelector('[data-lg="' + k + '"]'), b = document.getElementById("logo-" + k);
-    if (a && b) b.src = a.getAttribute("src");
-  });
   /* só toca no DOM quando o HTML mudou */
   function setHTML(el, h) { if (el._h === h) return false; el.innerHTML = h; el._h = h; return true; }
   function badge(text, color) { return '<span class="x-badge" style="' + tv("bc", color) + '">' + esc(text) + "</span>"; }
@@ -108,40 +103,17 @@
   }
   $("#toast").addEventListener("click", function () { clearTimeout(toastT); this.classList.remove("is-on"); try { if (this.hidePopover) this.hidePopover(); } catch (e) {} });
   /* ---------- banco online (Supabase via fetch) ---------- */
-  var SB = "https://sfaxcrkbvmafpkgydzxu.supabase.co";
-  var SBK = "sb_publishable_FxF-gC3o4iioQwJQ73Fy9g_JyS43Awf";
+  var SB = Auth.SB, SBK = Auth.SBK;
   var PUB = SB + "/storage/v1/object/public/midia/";
   var PERM = "Você não tem permissão para isso";
 
-  /* ---------- sessão (Supabase Auth via REST, mesma API do supabase-js) ---------- */
-  var AKEY = "sb-sfaxcrkbvmafpkgydzxu-auth-token", MEM = {};
-  var store = (function () {
-    var ls = null;
-    try { ls = window.localStorage; ls.setItem("__t", "1"); ls.removeItem("__t"); } catch (e) { ls = null; }
-    return {
-      get: function (k) { var v = null; try { if (ls) v = ls.getItem(k); } catch (e) {} return v != null ? v : k in MEM ? MEM[k] : null; },
-      set: function (k, v) { MEM[k] = v; try { if (ls) ls.setItem(k, v); } catch (e) {} },
-      del: function (k) { delete MEM[k]; try { if (ls) ls.removeItem(k); } catch (e) {} },
-    };
-  })();
+  /* ---------- sessão (cookie gerenciado por auth.js, compartilhado com login.html) ---------- */
   var SESSION = null, refreshT = null, refreshing = null;
-  function readStored() { try { var s = JSON.parse(store.get(AKEY) || "null"); return s && s.access_token ? s : null; } catch (e) { return null; } }
+  var readStored = Auth.read, authReq = Auth.authReq;
   function saveSession(s) {
-    if (s && !s.expires_at) s.expires_at = Math.floor(Date.now() / 1000) + (s.expires_in || 3600);
-    SESSION = s || null;
-    if (s) store.set(AKEY, JSON.stringify(s)); else store.del(AKEY);
+    SESSION = s ? Auth.save(s) : (Auth.clear(), null);
     clearTimeout(refreshT);
-    if (s) refreshT = setTimeout(function () { refreshSession().catch(function () {}); }, Math.max(5000, s.expires_at * 1000 - Date.now() - 60000));
-  }
-  function authReq(path, body, token) {
-    return fetch(SB + "/auth/v1/" + path, { method: "POST", headers: { apikey: SBK, Authorization: "Bearer " + (token || SBK), "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
-      .then(function (r) {
-        return r.text().then(function (t) {
-          var j = {}; try { j = t ? JSON.parse(t) : {}; } catch (e) {}
-          if (!r.ok) { var er = new Error(j.error_description || j.msg || j.message || "HTTP " + r.status); er.status = r.status; throw er; }
-          return j;
-        });
-      });
+    if (SESSION) refreshT = setTimeout(function () { refreshSession().catch(function () {}); }, Math.max(5000, SESSION.expires_at * 1000 - Date.now() - 60000));
   }
   function refreshSession() {
     if (!SESSION || !SESSION.refresh_token) return Promise.reject(new Error("sem sessão"));
@@ -163,13 +135,10 @@
   }
   var sb = {
     auth: {
-      signInWithPassword: function (c) {
-        return authReq("token?grant_type=password", c).then(function (s) { saveSession(s); return { data: { session: s, user: s.user }, error: null }; }, function (e) { return { data: {}, error: e }; });
-      },
       signOut: function () {
         var t = SESSION && SESSION.access_token;
         saveSession(null);
-        if (t) authReq("logout", {}, t).catch(function () {});
+        Auth.logout(t);
         return Promise.resolve({ error: null });
       },
     },
@@ -196,7 +165,7 @@
     if (!m || /^HTTP \d+|row-level security|permission denied|JWT|unauthorized/i.test(m)) return isPerm(e) ? PERM : "Não deu certo — tente de novo.";
     return m;
   }
-  /* toda leitura e gravação passa por aqui, com o token da sessão (ou a chave pública para visitantes) */
+  /* toda leitura e gravação passa por aqui, com o token da sessão  */
   function req(url, opt, retried) {
     opt = opt || {};
     return fresh().then(function () {
@@ -338,7 +307,8 @@
   function rowsSig(rows) { return (rows || []).map(function (r) { return r.id + "@" + r.updated_at; }).sort().join(","); }
   /* sondagem leve (só id e updated_at); a lista completa só é baixada quando algo mudou */
   function sync(force) {
-    if (syncing) return Promise.resolve();
+    /* sem login não há leitura: os dados só são baixados depois que a pessoa entra */
+    if (!ME || syncing) return Promise.resolve();
     syncing = true;
     var startedAt = Date.now();
     var pre = loaded && force !== true
@@ -1645,14 +1615,11 @@
   $("#aiConfYes").addEventListener("click", function () { $("#mAiConf").close(); aiRun(false); });
   $("#aiCopy").addEventListener("click", function () { copyCap($("#dDesc").value, selectCap); });
 
-  /* ---------- login ---------- */
-  function closeDialogs() { document.querySelectorAll("dialog[open]").forEach(function (d) { d.close(); }); }
-  function showLogin(on) {
-    $("#login").hidden = !on;
-    document.body.classList.toggle("x-locked", on);
-    document.documentElement.classList.toggle("x-onlogin", on);
-    if (!on) window.scrollTo(0, 0);
-    if (on) { closeDialogs(); setTimeout(function () { $("#lUser").focus(); }, 0); }
+  /* ---------- sessão: entrada e saída (a tela de login é a página login.html) ---------- */
+  function unlock() {
+    document.body.classList.remove("x-locked");
+    document.documentElement.classList.remove("x-onlogin");
+    window.scrollTo(0, 0);
   }
   function loadProfile(id) {
     return req(SB + "/rest/v1/usuario?id=eq." + encodeURIComponent(id) + "&select=id,nome,usuario,funcao", { cache: "no-store" })
@@ -1678,61 +1645,37 @@
     migrate();
   }
   function enter(p) {
-    ME = p || null;
-    ROLE = p ? (ROLE_L[p.funcao] && p.funcao !== "visitante" ? p.funcao : "comum") : "visitante";
-    showLogin(false); applyRole();
+    ME = p;
+    ROLE = ROLE_L[p.funcao] && p.funcao !== "visitante" ? p.funcao : "comum";
+    unlock(); applyRole();
+    /* baixa os dados já com a sessão do usuário */
+    loaded = false; loadFailed = false; lastSig = ""; SERVER_IDS = {};
+    setSync("loading"); sync(true);
+    var hello = null;
+    try { hello = sessionStorage.getItem("gestao_hello"); sessionStorage.removeItem("gestao_hello"); } catch (e) {}
+    if (hello) say("Olá, " + hello + "!");
   }
-  function leave(msg) {
-    ME = null; ROLE = "";
-    applyRole(); showLogin(true);
-    $("#lErr").textContent = msg || "";
-  }
-  function sessionLost() { saveSession(null); if (ME) leave("Sua sessão expirou — entre de novo."); }
-  function loginBusy(on, t) { var b = $("#lGo"); b.disabled = on; b.setAttribute("aria-busy", on ? "true" : "false"); b.textContent = on ? t || "Entrando…" : "Entrar"; }
-  function doLogin() {
-    if ($("#lGo").disabled) return;
-    var u = $("#lUser").value, p = $("#lPass").value;
-    $("#lErr").textContent = "";
-    if (!u.trim() || !p) { $("#lErr").textContent = "Usuário ou senha incorretos"; return; }
-    loginBusy(true);
-    sb.auth.signInWithPassword({ email: u.toLowerCase().trim() + "@gestao.app", password: p }).then(function (res) {
-      if (res.error) { $("#lErr").textContent = res.error.status && res.error.status < 500 ? "Usuário ou senha incorretos" : "Sem conexão — tente de novo."; return; }
-      return loadProfile(res.data.user.id).then(function (pr) {
-        if (!pr) { sb.auth.signOut(); $("#lErr").textContent = "Este usuário ainda não tem perfil. Fale com o administrador."; return; }
-        $("#lPass").value = ""; enter(pr); say("Olá, " + String(pr.nome).split(" ")[0] + "!");
-      });
-    }).catch(function () { $("#lErr").textContent = "Sem conexão — tente de novo."; }).then(function () { loginBusy(false); });
-  }
-  $("#lGo").addEventListener("click", doLogin);
-  ["#lUser", "#lPass"].forEach(function (id) {
-    $(id).addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
-  });
-  document.querySelectorAll(".x-eye[data-pw]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var inp = document.getElementById(b.dataset.pw), show = inp.type === "password";
-      inp.type = show ? "text" : "password";
-      b.setAttribute("aria-pressed", show ? "true" : "false");
-      b.setAttribute("aria-label", show ? "Ocultar senha" : "Mostrar senha");
-    });
-  });
-  $("#lGuest").addEventListener("click", function () { $("#lErr").textContent = ""; enter(null); });
+  /* sessão perdida ou expirada: volta para a página de login */
+  function sessionLost() { saveSession(null); ME = null; Auth.toLogin("expirada"); }
   $("#bOut").addEventListener("click", function () {
-    if (!ME) { showLogin(true); return; }
-    var go = function () { sb.auth.signOut(); leave(""); };
+    var go = function () { sb.auth.signOut(); Auth.toLogin(); };
     if (pendingIds().length) { say("Salvando antes de sair…"); whenSaved().then(go); } else go();
+  });
+  /* saiu em outra aba (cookie apagado): esta aba também volta ao login */
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && ME && !readStored()) sessionLost();
   });
   function restore() {
     var s = readStored();
-    if (!s) { showLogin(true); return; }
-    saveSession(s); loginBusy(true);
+    if (!s) { Auth.toLogin(); return; }
+    saveSession(s);
     fresh().then(function () {
       if (!SESSION) return null;
       return loadProfile(SESSION.user && SESSION.user.id);
     }).then(function (pr) {
       if (pr) enter(pr);
-      else { if (SESSION) sb.auth.signOut(); showLogin(true); }
-    }, function () { showLogin(true); $("#lErr").textContent = "Sem conexão — tente de novo."; })
-      .then(function () { loginBusy(false); });
+      else if (SESSION) { sb.auth.signOut(); Auth.toLogin(); }
+    }, function () { $("#boot").textContent = "Sem conexão — tentando de novo…"; setTimeout(restore, 5000); });
   }
 
   /* ---------- usuários (só adm) ---------- */
@@ -1828,7 +1771,5 @@
   applyTheme();
   renderChips();
   renderAll();
-  setSync("loading");
-  sync();
   restore();
 })();

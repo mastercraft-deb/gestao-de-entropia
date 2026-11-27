@@ -1095,6 +1095,8 @@ dialog.x-lb::backdrop { background: rgba(0, 0, 0, 0.6); }
 /* fundo sólido no html/body enquanto o login está aberto; o painel fica fora até entrar */
 html.x-onlogin, body.x-locked { background: #16294E; }
 body.x-locked #app { display: none; }
+.x-boot { display: none; }
+body.x-locked .x-boot { display: grid; min-height: 100vh; place-items: center; margin: 0; color: #fff; font: 600 14px/1.4 var(--x-sans); letter-spacing: 0.04em; }
 .x-lband { position: absolute; left: 0; right: 0; top: 0; height: 4px; display: flex; }
 .x-lband i, .x-tstripe i { flex: 1 1 0; }
 .x-lband i:nth-child(1), .x-tstripe i:nth-child(1) { background: var(--x-green); }
@@ -1108,7 +1110,7 @@ body.x-locked #app { display: none; }
 }
 .x-tstripe { height: 6px; display: flex; }
 .x-tmain { display: grid; gap: 14px; padding: 22px 24px 26px; min-width: 0; }
-.x-tlabel, .x-lcard .x-field > span, .x-lcard .x-field > label, .x-lor, .x-tstub { font-family: var(--x-mono); text-transform: uppercase; letter-spacing: 0.14em; }
+.x-tlabel, .x-lcard .x-field > span, .x-lcard .x-field > label, .x-tstub { font-family: var(--x-mono); text-transform: uppercase; letter-spacing: 0.14em; }
 .x-tlabel { margin: 0; font-size: 12px; font-weight: 400; color: var(--x-ink2); }
 .x-tlabel b { color: var(--x-blue); font-weight: 400; }
 .x-lcard h1 { margin: 4px 0 0; display: grid; gap: 4px; color: var(--x-ink); font-family: var(--x-sans); line-height: 1.02; overflow-wrap: anywhere; }
@@ -1147,8 +1149,6 @@ body.x-locked #app { display: none; }
 .x-lcard .x-btn:hover { box-shadow: none; background: rgba(22, 41, 78, 0.07); }
 .x-lcard .x-btn:active { background: rgba(22, 41, 78, 0.14); }
 .x-lcard .x-cta:focus-visible, .x-lcard .x-btn:focus-visible { outline: 3px solid var(--x-ink); outline-offset: 2px; box-shadow: none; }
-.x-lor { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 12px; color: var(--x-ink2); }
-.x-lor::before, .x-lor::after { content: ""; flex: 1; height: 1px; background: rgba(22, 41, 78, 0.2); }
 .x-tstub { position: relative; display: flex; align-items: center; gap: 12px; height: var(--x-stub); padding: 0 28px; background: #E7E5DF; border-top: 2px dashed rgba(22, 41, 78, 0.28); font-size: 12px; color: var(--x-ink2); white-space: nowrap; }
 /* picotes laterais do bilhete: dois círculos sólidos da cor do fundo (sem máscara) */
 .x-tstub::before, .x-tstub::after { content: ""; position: absolute; top: -14px; width: 26px; height: 26px; border-radius: 50%; background: #16294E; }
